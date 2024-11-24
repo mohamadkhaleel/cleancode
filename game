@@ -1,122 +1,150 @@
 from Matrix import Matrix
 import random
+from typing import List, Optional
+from enum import Enum
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+
+# Constants for game elements
+PLAYER_1 = "player1"
+PLAYER_2 = "player2"
+COIN = "coin"
+WALL = "wall"
+EMPTY = "."
+MIN_COINS_REQUIRED = 10
+MAX_SCORE = 100
+
+class Direction(Enum):
+    UP = (-1, 0)
+    DOWN = (1, 0)
+    LEFT = (0, -1)
+    RIGHT = (0, 1)
 
 class GoldRush(Matrix):
-    def __init__(self, rows, cols):
+    """
+    GoldRush game board management class.
+
+    Manages a 2D grid-based game where players compete to collect coins and avoid obstacles.
+    """
+
+    def __init__(self, rows: int, cols: int):
+        """
+        Initialize the GoldRush game with a board size and player scores.
+        """
         super().__init__(rows, cols)
-        self.s1 = 0
-        self.s2 = 0
-        self.win = ""
+        self.s1: int = 0
+        self.s2: int = 0
+        self.win: str = ""
+        self.coins: int = 0
+        self.matrix: List[List[str]] = []
+
+    def load_board(self) -> List[List[str]]:
+        """
+        Initializes and populates the game board with coins, walls, and players.
+
+        Ensures there are at least the minimum number of coins on the board.
+        """
+        while True:
+            self._initialize_board()
+            if self.coins >= MIN_COINS_REQUIRED:
+                break
+        return self.matrix
+
+    def _initialize_board(self):
+        """
+        Sets up the initial board state with elements, coins, and players.
+        """
+        self.matrix = []
         self.coins = 0
 
-    def load_board(self):
-        if self.rows == 0 and self.cols == 0:
-            self.matrix = []
-            return
+        for row_index in range(self.rows):
+            row = self._populate_row(row_index)
+            self.matrix.append(row)
 
-        self.matrix = []
-        elements = ["coin", ".", "wall"]
-        coins = 0
+        self.matrix[0][0] = PLAYER_1
+        self.matrix[self.rows - 1][self.cols - 1] = PLAYER_2
 
-        for i in range(self.rows):
-            self.matrix.append([])
-            for j in range(self.cols):
-                if i % 2 != 0:
-                    rand_index = random.randint(0, 1)
-                    rand_element = elements[rand_index]
-                    self.matrix[i].append(rand_element)
-                    if rand_element == "coin":
-                        coins += 1
-                else:
-                    wall_index = 2
-                    wall = elements[wall_index]
-                    self.matrix[i].append(wall)
+    def _populate_row(self, row_index: int) -> List[str]:
+        """
+        Populates a single row with walls, coins, and empty spaces.
+        """
+        elements = [COIN, EMPTY]
+        row = []
 
-            rand = random.randint(1, 2)
-            for k in range(1, self.cols, rand):
-                rand += 1
-                rand_index = random.randint(0, 1)
-                rand_element = elements[rand_index]
-                self.matrix[i][k] = rand_element
-                if rand_element == "coin":
-                    coins += 1
+        for col_index in range(self.cols):
+            if row_index % 2 == 0:
+                row.append(WALL)
+            else:
+                rand_element = random.choice(elements)
+                row.append(rand_element)
+                if rand_element == COIN:
+                    self.coins += 1
 
-        self.matrix[0][0] = "player1"
-        self.matrix[self.rows - 1][self.cols - 1] = "player2"
-        self.coins = coins
+        return row
 
-        if coins < 10:
-            return self.load_board()
-        else:
-            return self.matrix
+    def move_player(self, player: str, direction: str):
+        """
+        Moves a player in the specified direction if the move is valid.
+        """
+        if direction not in Direction.__members__:
+            raise ValueError(f"Invalid direction: {direction}")
 
-    def _check_win(self, player):
-        player_num = player[-1]
-        score = getattr(self, f"s{player_num}")
-        if score == 100:
-            self.win = player
-            return self.win
+        curr_row, curr_col = self._find_player_position(player)
+        if curr_row is None:
+            raise ValueError(f"Player {player} not found on the board.")
 
-    def _check_other_player(self, player):
-        otherPlayer = None
-        if player == "player1":
-            otherPlayer = "player2"
-            return otherPlayer
-        elif player == "player2":
-            otherPlayer = "player1"
-            return otherPlayer
-        
+        delta_row, delta_col = Direction[direction].value
+        self._move_player_to(curr_row, curr_col, player, delta_row, delta_col)
 
-    def _move(self, curr_row, curr_col, player, delta_row, delta_col):
-        other_player = self._check_other_player(player)
+    def _find_player_position(self, player: str) -> Optional[tuple[int, int]]:
+        """
+        Finds the position of a player on the board.
+        """
+        for row_index, row in enumerate(self.matrix):
+            for col_index, value in enumerate(row):
+                if value == player:
+                    return row_index, col_index
+        return None, None
+
+    def _move_player_to(self, curr_row: int, curr_col: int, player: str, delta_row: int, delta_col: int):
+        """
+        Handles the logic for moving a player to a new position.
+        """
         new_row, new_col = curr_row + delta_row, curr_col + delta_col
 
         if not (0 <= new_row < self.rows and 0 <= new_col < self.cols):
-            return
+            return  # Out of bounds
 
-        if self.matrix[new_row][new_col] not in ["wall", other_player]:
-            if self.matrix[new_row][new_col] == "coin":
-                self._score(player)
+        other_player = PLAYER_2 if player == PLAYER_1 else PLAYER_1
+        destination = self.matrix[new_row][new_col]
 
-            self.matrix[curr_row][curr_col] = "."
+        if destination not in [WALL, other_player]:
+            if destination == COIN:
+                self._update_score(player)
+
+            self.matrix[curr_row][curr_col] = EMPTY
             self.matrix[new_row][new_col] = player
 
-        return self._check_win(player)
+        self._check_win(player)
 
-    def _move_down(self, curr_row, curr_col, player):
-        return self._move(curr_row, curr_col, player, 1, 0)
-
-    def _move_up(self, curr_row, curr_col, player):
-        return self._move(curr_row, curr_col, player, -1, 0)
-
-    def _move_right(self, curr_row, curr_col, player):
-        return self._move(curr_row, curr_col, player, 0, 1)
-
-    def _move_left(self, curr_row, curr_col, player):
-        return self._move(curr_row, curr_col, player, 0, -1)
-
-    def move_player(self, player, direction):
-        curr_row, curr_col = None, None
-
-        for i, row in enumerate(self.matrix):
-            for j, value in enumerate(row):
-                if value == player:
-                    curr_row, curr_col = i, j
-                    break
-            if curr_row is not None:
-                break
-
-        if direction == "down":
-            self._move_down(curr_row, curr_col, player)
-        elif direction == "up":
-            self._move_up(curr_row, curr_col, player)
-        elif direction == "right":
-            self._move_right(curr_row, curr_col, player)
-        elif direction == "left":
-            self._move_left(curr_row, curr_col, player)
-
-    def _score(self, player):
-        player_num = player[-1]
+    def _update_score(self, player: str):
+        """
+        Increments the score for the specified player.
+        """
+        player_num = player[-1]  # "player1" -> 1, "player2" -> 2
         score_attr = f"s{player_num}"
         setattr(self, score_attr, getattr(self, score_attr) + 10)
-        print(getattr(self, score_attr))
+        logging.info(f"{player}'s score: {getattr(self, score_attr)}")
+
+    def _check_win(self, player: str):
+        """
+        Checks if the player has reached the winning score.
+        """
+        player_num = player[-1]
+        score = getattr(self, f"s{player_num}")
+
+        if score >= MAX_SCORE:
+            self.win = player
+            logging.info(f"{player} wins the game!")
